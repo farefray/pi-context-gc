@@ -1,4 +1,5 @@
 import { getPackageDir, SettingsManager, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import * as sdk from '@earendil-works/pi-coding-agent';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -47,7 +48,8 @@ export default function (pi: ExtensionAPI) {
     const dir = getPackageDir();
     const disk = require(join(dir, 'dist/core/settings-manager.js'));
     const { prepareCompaction } = require(join(dir, 'dist/core/compaction/compaction.js'));
-    proof.identity = SettingsManager === disk.SettingsManager;
+    proof.identity = SettingsManager === disk.SettingsManager; // Independent oracle metadata, not admission authority.
+    proof.publicCapability = typeof (sdk as unknown as { readCompactionReadiness?: unknown }).readCompactionReadiness === 'function';
     proof.packageDir = dir;
     proof.short = readCompactionReadiness(ctx, pi.getSettings());
     for (let i = 0; i < 8; i++) pi.sendMessage({ customType: 'gc-proof-seed', display: false, content: `Synthetic phase ${i}: ` + 'bounded fixture history '.repeat(300) });

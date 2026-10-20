@@ -5,6 +5,12 @@ Initial Git release: `farefray/pi-context-gc`, immutable tag `v0.1.1-farefray.1`
 Upstream: `manuelcecchetto/pi-context-gc`, base `be0c2830b3914c4b1f314baa9fff4a55409d31dd`.
 Original author/license/notices retained; repository metadata identifies `farefray`.
 
+## Unreleased: public SDK readiness
+
+The candidate replaces the private path/version/class-identity loader with the SDK's public `readCompactionReadiness({sessionManager, model, settings})`. Current context/session/leaf, result validation and content-free refusals remain; scheduler/admission/grants/floors are unchanged. Missing capability refuses rather than loading a private module. Eight focused checks and TypeScript build pass; actual patched-host composition remains pending. Earlier evidence below belongs to the previous release.
+
+Retired tests targeted private loader/layout/class identity, not user behavior. Replacement coverage checks actual accessor arguments, no mutation/actions, effective result propagation, stale/foreign/malformed results and missing capability. CLI fixtures now depend on the public capability rather than whether a distribution happens to share `SettingsManager` identity; unsupported stock distributions still refuse without compact/resume. No CLI/native-provider certification is added.
+
 ## Scheduler port
 
 Selectively ported the reviewed scheduler kernel and its regression suite, without importing downstream Git history, deployment configuration or QA artifacts. Preserved complete persisted tool-batch validation, exactly-once truthful continuation, queue/Stop/session/tree/generation guards, activation-local optional admission, current minimum checks and stable early guidance. Reusable `minContextTokens` remains zero.

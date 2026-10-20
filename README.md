@@ -1,10 +1,10 @@
 # @farefray/pi-context-gc
 
-**Git release: `0.1.1-farefray.1`, for explicitly integrated pi-web hosts using exact unbundled Pi SDK 1.3.0 on Node.js. Stock Pi CLI is unsupported; the standard bundled CLI refuses readiness (`sdk-module-mismatch`). Installing the scheduler and backend alone does not supply the required host integration.**
+**Unreleased candidate:** readiness uses the SDK's public `readCompactionReadiness` capability. The reference host supplies a tested patch to exact SDK 1.3.0 on Node; installing these packages alone does not supply that capability or native host integration. Published tag `v0.1.1-farefray.1` remains the previous implementation, not this candidate. Stock CLI/native-provider certification is not added.
 
 A semantic compaction **scheduler**, not a compaction backend. The model calls `compact_context` at a completed phase boundary with a bounded task/decision/search/verification ledger. GC waits for the entire persisted tool batch, rechecks readiness, asks Pi to compact, then resumes once after success. Pi's normal threshold/overflow safeguards remain unchanged.
 
-## Install from exact Git tags
+## Published v1 Git tags — not the unreleased candidate
 
 These forks are distributed through GitHub, **not npm**. The initial release pair is pinned to the immutable Git tags below. Do not substitute an unversioned branch or `npm:@farefray/...`.
 
@@ -28,7 +28,7 @@ Those commands fetch/register packages; they do **not** integrate a host or make
 
 The manifest has one extension, `index.ts`. No vendored backend, Toolkit, provider, credentials or host patches are included. Install the [separate backend](https://github.com/farefray/pi-better-compaction/blob/v0.7.4-farefray.1/README.md) and load exactly one producer/reader for its checkpoint format. Its own compatibility and refusal policy apply; the scheduler's fake-backend tests alone do **not** certify it.
 
-Native mode requires an explicitly integrated pi-web host providing **`compactionSession` v1 and a complete qualified handler profile**, not just the two installed packages. **No publicly distributed ready-to-use pi-web host implementation is currently provided.** Integrators must implement and qualify that adapter themselves. The public backend documents the full [host capability contract](https://github.com/farefray/pi-better-compaction/blob/v0.7.4-farefray.1/README.md#host-capability-version-1) and a [minimal structural composition sketch](https://github.com/farefray/pi-better-compaction/blob/v0.7.4-farefray.1/README.md#minimal-structural-composition); neither is a standalone host.
+The candidate native backend requires an explicitly integrated host providing `compactionSession` v2 over one SDK preparation/finalization path. This scheduler does not inspect handler identities or private SDK modules. Integrators must separately qualify that native backend contract; no ready-to-use public host implementation is shipped here. The older Git tags above require their older v1 host contract and must not be substituted for the candidate.
 
 Use host-supplied SDK/AI/agent-core **1.3.0**, not merely a compatible semver range. Node is the supported delivery runtime; Bun source-test success is not qualification for Bun delivery.
 
@@ -38,9 +38,9 @@ For scheduler-only offline/local evaluation, the verified **unbundled** SDK entr
 node /path/to/pi-coding-agent/dist/cli.js -e /path/to/pi-context-gc
 ```
 
-Use `-e /path/to/pi-context-gc/scheduler-only.ts` as an equivalent explicit alias. This is a scheduler test route, **not** an end-to-end native install recipe or stock CLI support. Do not use `dist/bundle/cli.js` for semantic GC: it is tested to refuse. Scheduler readiness needs no SDK fork or private host hook; the backend's native operations still require the separate host capability above. Node.js must support synchronous native `require(ESM)` (package minimum 22.19.0; offline qualification used Node 24.19.0).
+Use `-e /path/to/pi-context-gc/scheduler-only.ts` as an equivalent explicit alias. This is a synthetic scheduler test route, **not** stock CLI or end-to-end native certification. A distribution without the public readiness capability returns `sdk-readiness-unavailable`, regardless of whether it is bundled. The candidate does not search for internal modules as a fallback.
 
-Host-provided SDK/typebox packages are peers, not runtime dependencies. Do not install a second SDK to work around an identity refusal. Runtime imports go through Pi's module mapping; the adapter then verifies exact package version and `SettingsManager` identity before loading that same unbundled SDK's internal pure `prepareCompaction`. Unknown versions, foreign copies, asset overrides, stale contexts or malformed state refuse without aborting/compacting. Preparation is not copied and readiness is not inferred from token estimates or `force`.
+Host SDK/typebox packages remain peers. Runtime imports use the host's module mapping and call its public readiness accessor with the actual session manager, current model and merged settings. The SDK owns boundary selection and effective model settings; the scheduler checks the returned session/leaf and stale context without filesystem/version/prototype identity probes. Unsupported capability, invalid output or stale state refuses without abort/compact/provider work. Readiness is not copied or inferred from token estimates/force.
 
 ## Safety and recovery
 
@@ -67,7 +67,7 @@ Global: `~/.pi/agent/context-gc.json`. Trusted project override: `.pi/context-gc
 }
 ```
 
-The public package default is `minContextTokens: 0`; a host project's admission policy is separate and is not shipped here. Zero disables only the additional token floor, **not** exact SDK readiness or any safety guard. A positive safe-integer floor requires known current SDK usage at acceptance and start/retry. Early model guidance is stable and never embeds a changing usage counter. Pi's `keepRecentTokens` and effective per-model settings still determine preparation eligibility.
+The public package default is `minContextTokens: 0`; a host project's admission policy is separate and is not shipped here. Zero disables only the additional token floor, **not** public SDK readiness or any safety guard. A positive safe-integer floor requires known current SDK usage at acceptance and start/retry. Early model guidance is stable and never embeds a changing usage counter. Pi's `keepRecentTokens` and effective per-model settings still determine preparation eligibility.
 
 Boolean environment overrides: `PI_CONTEXT_GC_ENABLED`, `PI_CONTEXT_GC_AUTO_RESUME`, `PI_CONTEXT_GC_RESUME_ON_FAILURE`, `PI_CONTEXT_GC_NOTIFY` (`1/0`, `true/false`, `yes/no`, `on/off`).
 
@@ -84,7 +84,9 @@ npm ci --ignore-scripts
 npm run check
 ```
 
-The latest maintainer recheck reports **410 scheduler tests passing**. Coverage includes inherited lifecycle/policy/batch guards, exact SDK readiness, effective settings, malformed/stale/foreign SDK refusals, and real unbundled CLI/Jiti with synthetic inference and an independent preparation oracle. The bundled CLI regression asserts refusal. Set `GC_HOST_SDK` to another exact installed SDK1.3.0 package directory to run CLI tests against the actual host rather than the dev installation. CLI fixtures use isolated HOME and synthetic in-memory sessions with network guards.
+For this candidate, eight focused public-readiness checks and TypeScript build pass against the capability/refusal boundary; actual patched-SDK composition is still pending. The old private-module/version/class-identity fixtures were replaced with public capability, no-mutation, stale/foreign-result, settings and refusal checks.
+
+**Previous published-v1 evidence, not candidate qualification:** the maintainer recheck reported **410 scheduler tests passing**. Coverage includes inherited lifecycle/policy/batch guards, exact SDK readiness, effective settings, malformed/stale/foreign SDK refusals, and real unbundled CLI/Jiti with synthetic inference and an independent preparation oracle. The bundled CLI regression asserts refusal. Set `GC_HOST_SDK` to another exact installed SDK1.3.0 package directory to run CLI tests against the actual host rather than the dev installation. CLI fixtures use isolated HOME and synthetic in-memory sessions with network guards.
 
 Separate checks report backend **212 unit + 23 actual-SDK oracle + 3 full-root loader** checks, host source/packed composition **26**, and compiled-adapter fixture **1** passing. These are offline, scoped checks, not public Git installation verification, full compiled RPC/package composition, native browser acceptance, live memory-quality evidence or blanket cross-provider certification. Node delivery is qualified within those scopes; Bun delivery is not. Publication and host activation remain separate actions.
 

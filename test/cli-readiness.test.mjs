@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getPackageDir } from '@earendil-works/pi-coding-agent';
 
 for (const bundled of [false, true]) {
-  test(`actual ${bundled ? 'bundled CLI refuses (unsupported distribution)' : 'unbundled CLI/Jiti compacts and resumes with fake inference'}`, { timeout: 45000 }, async t => {
+  test(`actual ${bundled ? 'bundled' : 'unbundled'} CLI uses public readiness or refuses without action`, { timeout: 45000 }, async t => {
     const root = mkdtempSync(join(tmpdir(), 'context-gc-cli-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const home = join(root, 'home');
@@ -42,7 +42,7 @@ const deny=()=>{ throw new Error('Offline fixture forbids network'); }; globalTh
         sent = true;
         child.stdin.write(JSON.stringify({ id: 'synthetic-proof', type: 'prompt', message: 'Perform the synthetic two-phase fixture only.' }) + '\n');
       }
-      if (proof.settled && typeof proof.accepted === 'boolean' && (bundled || proof.resumes === 1)) child.stdin.end();
+      if (proof.settled && typeof proof.accepted === 'boolean' && (!proof.accepted || proof.resumes === 1)) child.stdin.end();
     }, 50);
     const status = await new Promise(resolve => child.once('close', resolve));
     clearTimeout(deadline); clearInterval(poll);
@@ -58,10 +58,10 @@ const deny=()=>{ throw new Error('Offline fixture forbids network'); }; globalTh
     assert.ok(proof, stderr);
     assert.equal(proof.privateHookPresent, false);
     assert.equal(proof.oracleEligible, true);
-    assert.equal(proof.identity, !bundled);
-    assert.equal(proof.accepted, !bundled);
-    if (bundled) {
-      assert.deepEqual(proof.eligible, { ok: false, reason: 'sdk-module-mismatch' });
+    assert.equal(typeof proof.publicCapability, 'boolean');
+    assert.equal(proof.accepted, proof.publicCapability);
+    if (!proof.publicCapability) {
+      assert.deepEqual(proof.eligible, { ok: false, reason: 'sdk-readiness-unavailable' });
       assert.equal(proof.compactions, 0);
       assert.equal(proof.resumes, 0);
     } else {
