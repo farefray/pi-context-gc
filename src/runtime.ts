@@ -4,6 +4,9 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { buildCompactionInstructions, buildResumeMessage } from "./instructions.ts";
+import { checkCompactionEligibility } from "./eligibility.ts";
+import { readCompactionReadiness, type CompactionReadinessReader } from "./sdk-readiness.ts";
+import { DEFAULT_CONFIG } from "./config.ts";
 import { getTrailingCompleteToolResultBatch } from "./tool-batches.ts";
 import {
   CHECKPOINT_ENTRY_TYPE,
@@ -22,6 +25,7 @@ export function createRuntimeState(): RuntimeState {
     checkpoint: undefined,
     lastError: undefined,
     lastCompletedCheckpointId: undefined,
+    pendingPauseDiagnostic: undefined,
   };
 }
 
@@ -31,6 +35,7 @@ export function resetRuntime(runtime: RuntimeState): void {
   runtime.checkpoint = undefined;
   runtime.lastError = undefined;
   runtime.lastCompletedCheckpointId = undefined;
+  runtime.pendingPauseDiagnostic = undefined;
 }
 
 export function invalidateRuntime(runtime: RuntimeState): void {
@@ -106,26 +111,51 @@ function appendCheckpointEntry(
   }
 }
 
+/** Read the SDK estimate once; invalid or unavailable token counts are unknown. */
+export function readContextUsage(ctx: ExtensionContext): ReturnType<ExtensionContext["getContextUsage"]> {
+  try {
+    const usage = ctx.getContextUsage();
+    if (!usage) return undefined;
+    const tokens = usage.tokens;
+    return {
+      ...usage,
+      tokens: typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0 ? tokens : null,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function minimumRefusal(
+  config: ContextGcConfig,
+  usage: ReturnType<typeof readContextUsage>,
+): string | undefined {
+  if (!(config.minContextTokens > 0)) return undefined;
+  const tokens = usage?.tokens;
+  if (tokens !== undefined && tokens !== null && tokens >= config.minContextTokens) return undefined;
+  return `semantic GC requires at least ${config.minContextTokens} context tokens; current SDK usage: ${tokens ?? "unknown"}`;
+}
+
 export function scheduleCheckpoint(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   runtime: RuntimeState,
   toolCallId: string,
   input: ContextGcInput,
+  config: ContextGcConfig = DEFAULT_CONFIG,
+  readReadiness: CompactionReadinessReader = readCompactionReadiness,
 ): { ok: true; checkpoint: ContextCheckpoint } | { ok: false; reason: string } {
   if (runtime.phase !== "idle") {
     return { ok: false, reason: `context GC is already ${runtime.phase}` };
   }
 
-  const sessionId = safeSessionId(ctx);
-  if (!sessionId) return { ok: false, reason: "unable to identify the active session" };
+  const usage = readContextUsage(ctx);
+  const refusal = minimumRefusal(config, usage);
+  if (refusal) return { ok: false, reason: refusal };
 
-  let usage: ReturnType<ExtensionContext["getContextUsage"]>;
-  try {
-    usage = ctx.getContextUsage();
-  } catch {
-    usage = undefined;
-  }
+  const eligibility = checkCompactionEligibility(pi, ctx, readReadiness);
+  if (!eligibility.ok) return eligibility;
+  const sessionId = eligibility.sessionId;
 
   const checkpoint: ContextCheckpoint = {
     id: randomUUID(),
@@ -167,8 +197,9 @@ function settleFailure(
   );
 
   if (config.resumeOnFailure) {
+    const generation = runtime.generation;
     setImmediate(() => {
-      if (runtime.phase !== "failed" || runtime.checkpoint?.id !== checkpoint.id) return;
+      if (runtime.generation !== generation || runtime.phase !== "failed" || runtime.checkpoint?.id !== checkpoint.id) return;
       resumeCheckpoint(pi, ctx, runtime, config, "automatic failure fallback");
     });
   }
@@ -188,7 +219,11 @@ function dispatchCheckpointResume(
     pi.sendMessage(
       {
         customType: RESUME_MESSAGE_TYPE,
-        content: [buildResumeMessage(checkpoint), "", `Continuation reason: ${reason}`].join("\n"),
+        content: [
+          buildResumeMessage(checkpoint, runtime.lastCompletedCheckpointId === checkpoint.id),
+          "",
+          `Continuation reason: ${reason}`,
+        ].join("\n"),
         display: false,
         details: {
           checkpointId: checkpoint.id,
@@ -208,6 +243,7 @@ function dispatchCheckpointResume(
   }
 
   appendCheckpointEntry(pi, checkpoint, "resumed", { reason });
+  runtime.pendingPauseDiagnostic = undefined;
   runtime.generation += 1;
   runtime.phase = "idle";
   runtime.checkpoint = undefined;
@@ -256,8 +292,9 @@ function finishAndMaybeResume(
   let hasPendingMessages = false;
   try {
     hasPendingMessages = ctx.hasPendingMessages();
-  } catch {
-    // Older compatible hosts may not expose reliable queue inspection.
+  } catch (error) {
+    settleFailure(pi, ctx, runtime, config, checkpoint, `unable to inspect continuation queue: ${errorText(error)}`);
+    return;
   }
 
   if (!idle || hasPendingMessages) {
@@ -291,6 +328,77 @@ function finishAndMaybeResume(
   }
 }
 
+/** Persist only the current pause at a known idle boundary; never start work. */
+export function flushPendingPauseDiagnostic(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  runtime: RuntimeState,
+): void {
+  const pending = runtime.pendingPauseDiagnostic;
+  if (!pending) return;
+  const checkpoint = runtime.checkpoint;
+  if (
+    runtime.generation !== pending.generation ||
+    runtime.phase !== "failed" ||
+    checkpoint?.id !== pending.checkpointId ||
+    checkpoint.sessionId !== pending.sessionId ||
+    !sameSession(ctx, pending.sessionId)
+  ) {
+    runtime.pendingPauseDiagnostic = undefined;
+    return;
+  }
+  try {
+    if (ctx.isIdle() !== true) return;
+  } catch {
+    // Unknown idle state cannot authorize a session mutation.
+    return;
+  }
+  // Consume before the best-effort append, including when persistence throws.
+  runtime.pendingPauseDiagnostic = undefined;
+  appendCheckpointEntry(pi, checkpoint, "failed", { error: pending.error });
+}
+
+function pauseBeforeCompaction(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  runtime: RuntimeState,
+  config: ContextGcConfig,
+  checkpoint: ContextCheckpoint,
+  reason: string,
+  idleRetry: boolean,
+): false {
+  // Admission/recheck refusals must never invoke the automatic failure fallback.
+  runtime.generation += 1;
+  runtime.phase = "failed";
+  runtime.lastError = reason;
+  runtime.pendingPauseDiagnostic = undefined;
+  // The API may now belong to a replacement session. Keep the old failure in
+  // memory only; never append its checkpoint ledger or UI state to the new one.
+  if (!sameSession(ctx, checkpoint.sessionId)) return false;
+  setStatus(ctx, config, "paused");
+  runtime.pendingPauseDiagnostic = {
+    generation: runtime.generation,
+    checkpointId: checkpoint.id,
+    sessionId: checkpoint.sessionId,
+    error: reason,
+  };
+  // A context transform must not change the request's leaf, even if an idle
+  // getter says true. Only a manual retry may persist here after an idle check.
+  if (idleRetry) flushPendingPauseDiagnostic(pi, ctx, runtime);
+  notify(ctx, config, `compaction paused: ${reason}. No compaction or automatic continuation was started. Follow the current user instructions, or inspect /context-gc status.`, "warning", true);
+  return false;
+}
+
+function persistedTrailingBatch(ctx: ExtensionContext) {
+  try {
+    const messages = ctx.sessionManager.buildContextEntries()
+      .flatMap((entry) => entry.type === "message" ? [entry.message] : []);
+    return getTrailingCompleteToolResultBatch(messages);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Start one Pi-owned compaction. Pi aborts the active low-level run, then enters
  * its standard manual compaction pipeline. Any installed session_before_compact
@@ -301,28 +409,34 @@ export function startCompaction(
   ctx: ExtensionContext,
   runtime: RuntimeState,
   config: ContextGcConfig,
+  readReadiness: CompactionReadinessReader = readCompactionReadiness,
 ): boolean {
   const checkpoint = runtime.checkpoint;
   if (!checkpoint) return false;
   if (runtime.phase !== "pending" && runtime.phase !== "failed") return false;
+  const retry = runtime.phase === "failed";
+  const pause = (reason: string): false =>
+    pauseBeforeCompaction(pi, ctx, runtime, config, checkpoint, reason, retry);
   if (!sameSession(ctx, checkpoint.sessionId)) {
-    runtime.phase = "failed";
-    runtime.lastError = "active session changed before compaction";
-    return false;
+    return pause("active session changed before compaction");
+  }
+  try {
+    if (ctx.signal?.aborted || ctx.hasPendingMessages() !== false) {
+      return pause("Stop or queued input owns continuation");
+    }
+    // Initial context boundaries belong to an active turn; only recovery needs idle.
+    if (retry && ctx.isIdle() !== true) {
+      return pause("retry requires an idle agent");
+    }
+  } catch {
+    return pause("unable to inspect active operation or input queue");
+  }
+  if (retry && !persistedTrailingBatch(ctx)?.toolCallIds.has(checkpoint.toolCallId)) {
+    return pause("retry requires the complete persisted trailing checkpoint tool batch");
   }
 
-  runtime.phase = "compacting";
-  runtime.generation += 1;
-  runtime.lastError = undefined;
-  const generation = runtime.generation;
-  setStatus(ctx, config, "compacting");
-  notify(
-    ctx,
-    config,
-    `semantic checkpoint requested${checkpoint.tokensAtRequest !== undefined ? ` at ${checkpoint.tokensAtRequest.toLocaleString()} tokens` : ""}; starting Pi compaction.`,
-    "info",
-  );
-
+  const generation = runtime.generation + 1;
+  const customInstructions = buildCompactionInstructions(checkpoint);
   let callbackSettled = false;
   const claim = (): boolean => {
     if (callbackSettled) return false;
@@ -335,13 +449,28 @@ export function startCompaction(
     );
   };
 
+  // Never reuse tokensAtRequest: context can change after tool acceptance or failure.
+  if (config.minContextTokens > 0) {
+    const refusal = minimumRefusal(config, readContextUsage(ctx));
+    if (refusal) return pause(refusal);
+  }
+
+  // Read the current model, branch and public settings synchronously.
+  // Recheck on every attempt, including retry, before Pi can abort the active run.
+  const eligibility = checkCompactionEligibility(pi, ctx, readReadiness);
+  if (!eligibility.ok) {
+    return pause(eligibility.reason);
+  }
+  if (eligibility.sessionId !== checkpoint.sessionId) {
+    return pause("active session changed before compaction");
+  }
+  runtime.pendingPauseDiagnostic = undefined;
+  runtime.phase = "compacting";
+  runtime.generation = generation;
+  runtime.lastError = undefined;
   try {
-    const compact = ctx.compact as (
-      options: NonNullable<Parameters<typeof ctx.compact>[0]> & { force: boolean },
-    ) => void;
-    compact({
-      force: true,
-      customInstructions: buildCompactionInstructions(checkpoint),
+    ctx.compact({
+      customInstructions,
       onComplete: (result) => {
         if (!claim()) return;
         runtime.phase = "resume-pending";
@@ -372,6 +501,10 @@ export function startCompaction(
     return false;
   }
 
+  if (runtime.phase === "compacting") {
+    setStatus(ctx, config, "compacting");
+    notify(ctx, config, "semantic checkpoint accepted; starting Pi compaction.", "info");
+  }
   return true;
 }
 
@@ -382,11 +515,23 @@ export function maybeStartAtContextBoundary(
   runtime: RuntimeState,
   config: ContextGcConfig,
   messages: readonly unknown[],
+  readReadiness: CompactionReadinessReader = readCompactionReadiness,
 ): boolean {
   if (!config.enabled || runtime.phase !== "pending" || !runtime.checkpoint) return false;
+  const toolCallId = runtime.checkpoint.toolCallId;
   const batch = getTrailingCompleteToolResultBatch(messages);
-  if (!batch || !batch.toolCallIds.has(runtime.checkpoint.toolCallId)) return false;
-  return startCompaction(pi, ctx, runtime, config);
+  if (!batch || !batch.toolCallIds.has(toolCallId)) return false;
+
+  // Context handlers may transform messages; only persisted history proves the
+  // tool and every sibling result have actually finished and been recorded.
+  const persistedBatch = persistedTrailingBatch(ctx);
+  if (!persistedBatch || !persistedBatch.toolCallIds.has(toolCallId)) return false;
+  if (persistedBatch.toolCallIds.size !== batch.toolCallIds.size) return false;
+  for (const id of batch.toolCallIds) {
+    if (!persistedBatch.toolCallIds.has(id)) return false;
+  }
+
+  return startCompaction(pi, ctx, runtime, config, readReadiness);
 }
 
 export function cancelPending(
@@ -399,6 +544,7 @@ export function cancelPending(
   const checkpoint = runtime.checkpoint;
   if (!checkpoint || !["pending", "failed", "resume-pending"].includes(runtime.phase)) return false;
   appendCheckpointEntry(pi, checkpoint, "cancelled", { reason });
+  runtime.pendingPauseDiagnostic = undefined;
   runtime.generation += 1;
   runtime.phase = "idle";
   runtime.checkpoint = undefined;
@@ -418,6 +564,12 @@ export function resumeCheckpoint(
   const checkpoint = runtime.checkpoint;
   if (!checkpoint || !["pending", "failed", "resume-pending"].includes(runtime.phase)) return false;
   if (!sameSession(ctx, checkpoint.sessionId)) return false;
+  try {
+    if (!ctx.isIdle() || ctx.hasPendingMessages()) return false;
+  } catch {
+    // A recovery command/fallback must not race an uninspectable active turn.
+    return false;
+  }
 
   return dispatchCheckpointResume(pi, ctx, runtime, config, checkpoint, reason);
 }
@@ -429,6 +581,7 @@ export function formatRuntimeStatus(runtime: RuntimeState, config: ContextGcConf
   const lines = [
     `phase: ${runtime.phase}`,
     `enabled: ${config.enabled}`,
+    `minimum context tokens: ${config.minContextTokens}`,
     `auto resume: ${config.autoResume}`,
     `resume on failure: ${config.resumeOnFailure}`,
   ];

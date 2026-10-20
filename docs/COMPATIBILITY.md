@@ -1,5 +1,7 @@
 # Compatibility and local changes
 
+> Historical upstream document: the vendored backend, SDK version and force-hint behavior below do not describe this fork. Current Git installation, exact SDK 1.3.0 readiness and host-integration requirements are in [README.md](../README.md) and [PATCHES.md](../PATCHES.md).
+
 The publication review found two details that a plain copy of the original manifest would hide.
 
 ## Native backend

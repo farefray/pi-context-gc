@@ -1,5 +1,7 @@
 # Third-party notices
 
+This scheduler fork retains the original pi-context-gc authorship (Manuel Cecchetto) and MIT license in LICENSE. The notices below are preserved from upstream. The current package ships no backend; the earlier bundled composition is historical provenance only.
+
 ## pi-midrun-compact
 
 `src/tool-batches.ts` adapts complete trailing tool-batch validation from `pi-midrun-compact`.
@@ -28,7 +30,7 @@ SOFTWARE.
 
 ## @lll9p/pi-better-compaction
 
-The package manifest loads the bundled `@lll9p/pi-better-compaction` extension as an independent runtime dependency.
+The upstream package previously bundled `@lll9p/pi-better-compaction`. That copy is removed from this fork's source and delivery. Its original notice is retained below for provenance; a separately installed backend carries its own license.
 
 MIT License
 
@@ -54,4 +56,4 @@ SOFTWARE.
 
 ## Vendored modification
 
-The copy under `vendor/pi-better-compaction` is based on npm 0.2.1 and changes only `src/compact-client.ts` to add the experimental Codex streaming fallback described in `docs/COMPATIBILITY.md`. Its original MIT LICENSE is retained alongside the source.
+Upstream based its former vendor copy on npm 0.2.1 with an experimental Codex streaming fallback. Historical details remain in `docs/COMPATIBILITY.md`; they do not describe this candidate's current composition or support.

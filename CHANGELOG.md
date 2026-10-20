@@ -1,5 +1,7 @@
 # Changelog
 
+> Historical upstream changelog. For `0.1.1-farefray.1`, the separate-backend composition and current support/install contract are documented in [PATCHES.md](PATCHES.md) and [README.md](README.md). Entries below are retained as provenance, not current setup instructions.
+
 ## 0.1.1
 
 - Vendor the locally patched native backend so Git installs preserve the Codex fallback.

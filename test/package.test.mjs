@@ -8,6 +8,7 @@ test('published entrypoints load through the real Pi extension loader', async ()
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const loaded = await loadExtensions(manifest.pi.extensions.map(p => resolve(p)), process.cwd());
   assert.deepEqual(loaded.errors, []);
-  assert.equal(loaded.extensions.length, 2);
+  assert.deepEqual(manifest.pi.extensions, ['./index.ts']);
+  assert.equal(loaded.extensions.length, 1);
   assert.ok(loaded.extensions.some(extension => extension.tools.has('compact_context')));
 });

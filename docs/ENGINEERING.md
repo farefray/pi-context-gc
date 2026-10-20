@@ -1,5 +1,7 @@
 # Engineering guide
 
+> Historical upstream guide. Current composition, SDK qualification and no-force readiness are defined in [README](../README.md) and [PATCHES](../PATCHES.md). There is no bundled backend in this candidate; historical provider/version instructions below do not establish current support.
+
 ## Non-negotiable invariants
 
 - Never prune, mutate, or drop conversation messages directly.

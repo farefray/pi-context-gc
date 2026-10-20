@@ -1,5 +1,7 @@
 # Test plan
 
+> Historical upstream test plan and observations, not this candidate's acceptance record. Current offline checks and explicit unsupported bundled CLI route are in [README](../README.md). Live scenarios below require separate authorization; the former vendor/force behavior is not the current contract.
+
 ## Automated checks
 
 ```bash

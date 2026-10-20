@@ -35,4 +35,19 @@ test("resume message is narrow and anchored on next focus", () => {
   assert.match(text, /API contract unchanged/);
   assert.match(text, /Redis expiry/);
   assert.match(text, /auth suite passes/);
+  assert.match(text, /auth fixed/);
+  assert.match(text, /rollback missing/);
+  assert.match(text, /No successful compaction has completed for this checkpoint/);
+  assert.doesNotMatch(text, /The semantic phase-boundary compaction completed\./);
+});
+
+test("resume completion claim requires explicit successful checkpoint completion", () => {
+  const text = buildResumeMessage(checkpoint, true);
+  assert.match(text, /The semantic phase-boundary compaction completed\./);
+  assert.doesNotMatch(text, /No successful compaction/);
+  for (const value of [checkpoint.input.completed_phase, checkpoint.input.next_focus,
+    ...checkpoint.input.keep, ...checkpoint.input.open_loops,
+    ...checkpoint.input.ruled_out, ...checkpoint.input.verification]) {
+    assert.ok(text.includes(value));
+  }
 });

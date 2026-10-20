@@ -1,252 +1,91 @@
-# pi-context-gc
+# @farefray/pi-context-gc
 
-Agent-triggered semantic context garbage collection for Pi.
+**Git release: `0.1.1-farefray.1`, for explicitly integrated pi-web hosts using exact unbundled Pi SDK 1.3.0 on Node.js. Stock Pi CLI is unsupported; the standard bundled CLI refuses readiness (`sdk-module-mismatch`). Installing the scheduler and backend alone does not supply the required host integration.**
 
-`pi-context-gc` gives the model one explicit tool, `compact_context`, for declaring that a coherent phase is complete and its raw working set is no longer useful. It records a bounded task/search/completion checkpoint, waits for the complete tool-result batch, enters Pi's standard compaction lifecycle with a requested forced-preparation hint, and resumes the task from a hidden canonical ledger. The `force: true` hint requires host support; stock Pi 0.84.2 ignores it, so its usual `keepRecentTokens` eligibility gate still applies. The package does not patch the host. See [compatibility and local changes](docs/COMPATIBILITY.md).
+A semantic compaction **scheduler**, not a compaction backend. The model calls `compact_context` at a completed phase boundary with a bounded task/decision/search/verification ledger. GC waits for the entire persisted tool batch, rechecks readiness, asks Pi to compact, then resumes once after success. Pi's normal threshold/overflow safeguards remain unchanged.
 
-The package manifest loads the vendored `@lll9p/pi-better-compaction` 0.2.1 with a documented local patch extension before the semantic scheduler. Supported OpenAI Responses models therefore use `/responses/compact`; ChatGPT-authenticated Codex models fall back from the unavailable standalone route to Codex remote-compaction v2 (`compaction_trigger` on the regular Responses stream). Both paths persist opaque compacted state. If native handling cannot run, the backend fails open to Pi's normal text compaction. Pi's existing threshold and context-overflow compaction remain untouched, including their configured `keepRecentTokens` behavior.
+## Install from exact Git tags
 
-## One observed run
+These forks are distributed through GitHub, **not npm**. The initial release pair is pinned to the immutable Git tags below. Do not substitute an unversioned branch or `npm:@farefray/...`.
 
-![Context and estimated cost by active model](https://raw.githubusercontent.com/manuelcecchetto/pi-context-gc/main/assets/model-compaction.png)
+Fetch the reviewed sources for your integrated host:
 
-In one sequential task, Astra called `compact_context` 50 times; Terra and Luna called it zero times. All had the same model-agnostic compaction tool available. This is an observation, not a controlled model benchmark. The backend also differed across phases. [Method and limitations](docs/OBSERVATION.md).
-
-## Design
-
-```text
-long Pi agent run
-  model -> read/bash/edit/test -> model -> ...
-                    |
-                    | model decides a coherent phase is complete
-                    v
-             compact_context(...)
-                    |
-        complete tool batch is persisted
-                    |
-          Pi `context` safe boundary
-                    |
-              ctx.compact()
-                    |
-       session_before_compact lifecycle
-          /                         \
- OpenAI opaque compact       Pi default fallback
-          \                         /
-            replacement history
-                    |
- hidden task/search/completion checkpoint
-                    v
-              next agent phase
+```sh
+git clone --branch v0.1.1-farefray.1 --single-branch https://github.com/farefray/pi-context-gc.git pi-context-gc
+git clone --branch v0.7.4-farefray.1 --single-branch https://github.com/farefray/pi-better-compaction.git pi-better-compaction
 ```
 
-```text
-scheduler owns WHEN
-backend owns HOW
-Pi owns persistence, threshold and overflow safety
+For hosts using Pi's package manager, the equivalent exact source declarations are `git:github.com/farefray/pi-context-gc@v0.1.1-farefray.1` and `git:github.com/farefray/pi-better-compaction@v0.7.4-farefray.1`. For example:
+
+```sh
+pi install --local git:github.com/farefray/pi-context-gc@v0.1.1-farefray.1
+pi install --local git:github.com/farefray/pi-better-compaction@v0.7.4-farefray.1
 ```
 
-## What it is
+Those commands fetch/register packages; they do **not** integrate a host or make stock CLI native mode supported. A host-owned composition must load the factories exactly once instead of also autoloading both default entries. Review source before granting project trust. Record the resolved tag commits and the host's locked SDK/runtime versions for a reproducible deployment; do not move release tags.
 
-- **semantic scheduling:** the active model chooses a real phase boundary;
-- **provider-native state:** OpenAI owns the opaque compacted representation;
-- **task-scoped context:** decisions, invariants, open loops, ruled-out paths and completion evidence survive;
-- **additive safety:** Pi's normal threshold/overflow route is not replaced;
-- **completion pressure:** `verification` is required so compaction also records why the phase is done.
+## Composition and host requirements
 
-## What it is not
+The manifest has one extension, `index.ts`. No vendored backend, Toolkit, provider, credentials or host patches are included. Install the [separate backend](https://github.com/farefray/pi-better-compaction/blob/v0.7.4-farefray.1/README.md) and load exactly one producer/reader for its checkpoint format. Its own compatibility and refusal policy apply; the scheduler's fake-backend tests alone do **not** certify it.
 
-- a deterministic task-change classifier;
-- a token threshold replacing Pi's threshold;
-- a `context` hook that silently deletes messages;
-- another textual summarizer;
-- exact parity with Codex's internal inline remote-compaction-v2 path;
-- a guarantee that native compaction is lossless or always produces 10–20k tokens.
+Native mode requires an explicitly integrated pi-web host providing **`compactionSession` v1 and a complete qualified handler profile**, not just the two installed packages. **No publicly distributed ready-to-use pi-web host implementation is currently provided.** Integrators must implement and qualify that adapter themselves. The public backend documents the full [host capability contract](https://github.com/farefray/pi-better-compaction/blob/v0.7.4-farefray.1/README.md#host-capability-version-1) and a [minimal structural composition sketch](https://github.com/farefray/pi-better-compaction/blob/v0.7.4-farefray.1/README.md#minimal-structural-composition); neither is a standalone host.
 
-## Requirements
+Use host-supplied SDK/AI/agent-core **1.3.0**, not merely a compatible semver range. Node is the supported delivery runtime; Bun source-test success is not qualification for Bun delivery.
 
-- Node `>=22.19.0`
-- Pi `@earendil-works/pi-coding-agent >=0.84.0`
-- a working OpenAI Responses/Codex model for opaque native compaction
+For scheduler-only offline/local evaluation, the verified **unbundled** SDK entrypoint is:
 
-Other providers can still use Pi's normal compaction fallback.
-
-## Install
-
-```bash
-pi install git:github.com/manuelcecchetto/pi-context-gc
+```sh
+node /path/to/pi-coding-agent/dist/cli.js -e /path/to/pi-context-gc
 ```
 
-Or clone and install locally:
+Use `-e /path/to/pi-context-gc/scheduler-only.ts` as an equivalent explicit alias. This is a scheduler test route, **not** an end-to-end native install recipe or stock CLI support. Do not use `dist/bundle/cli.js` for semantic GC: it is tested to refuse. Scheduler readiness needs no SDK fork or private host hook; the backend's native operations still require the separate host capability above. Node.js must support synchronous native `require(ESM)` (package minimum 22.19.0; offline qualification used Node 24.19.0).
 
-```bash
-cd /absolute/path/to/pi-context-gc
-npm install
-pi install "$PWD"
-```
+Host-provided SDK/typebox packages are peers, not runtime dependencies. Do not install a second SDK to work around an identity refusal. Runtime imports go through Pi's module mapping; the adapter then verifies exact package version and `SettingsManager` identity before loading that same unbundled SDK's internal pure `prepareCompaction`. Unknown versions, foreign copies, asset overrides, stale contexts or malformed state refuse without aborting/compacting. Preparation is not copied and readiness is not inferred from token estimates or `force`.
 
-Project-local evaluation from the repository where the agent will work:
+## Safety and recovery
 
-```bash
-cd /absolute/path/to/target-repository
-pi install -l /absolute/path/to/pi-context-gc
-```
-
-Restart Pi or run:
-
-```text
-/reload
-```
-
-Do not separately load `@lll9p/pi-better-compaction` when installing the package directory: the package manifest already loads its vendored extension resource. To combine only the scheduler with another `session_before_compact` backend, load `scheduler-only.ts` directly instead of installing the whole package.
-
-## `compact_context`
-
-Example:
-
-```json
-{
-  "completed_phase": "Auth failure isolated and fixed; refresh-token behavior preserved.",
-  "next_focus": "Implement and validate the database migration.",
-  "keep": [
-    "src/auth/session.ts validates issuer before cache lookup",
-    "Public API contract is unchanged",
-    "Migration must preserve existing refresh-token rows"
-  ],
-  "open_loops": [
-    "Migration rollback path is not implemented"
-  ],
-  "ruled_out": [
-    "Redis expiry was verified and is not the root cause",
-    "JWT decoder behavior is correct"
-  ],
-  "verification": [
-    "Auth unit suite passes",
-    "Refresh-token integration scenario passes"
-  ]
-}
-```
-
-Required:
-
-- `completed_phase`
-- `next_focus`
-- at least one `keep` item
-- at least one `verification` item
-
-The schema is deliberately bounded so the checkpoint cannot become another transcript. Put exact paths, symbols, decisions and evidence in it—not full files or logs.
-
-The model is instructed not to call the tool merely because context is large, while hypotheses are unresolved, or immediately before its final answer.
-
-## Why compaction starts from `context`
-
-Calling `ctx.compact()` inside the tool would abort the active run before Pi had necessarily persisted that result and any sibling results. The tool only records intent.
-
-On the next `context` event, the extension verifies that the tail contains one complete assistant/tool-result batch and that the exact checkpoint call has one finalized result. An `agent_settled` fallback reads persisted context entries and applies the same invariant.
-
-This is the nearest public Pi equivalent of a mid-run post-tool boundary.
-
-## Resume behavior
-
-Pi manual compaction aborts the low-level run and does not continue it. After success, the extension waits one event-loop turn, verifies session/generation/checkpoint identity, checks `ctx.isIdle()` and `ctx.hasPendingMessages()`, then injects one hidden canonical checkpoint with `triggerTurn: true`.
-
-The resume message includes:
-
-- completed phase and current focus;
-- durable state;
-- open loops;
-- ruled-out paths;
-- verification/completion evidence.
-
-The opaque compaction item carries broader provider-native continuity. The explicit ledger helps preserve the next working state, but its accuracy depends on the model; compaction is not guaranteed lossless.
-
-If another turn already owns continuation, no duplicate turn is created. With `autoResume=false`, state remains resumable via `/context-gc resume`.
-
-## Commands
-
-```text
-/context-gc status
-/context-gc retry
-/context-gc resume
-/context-gc cancel
-```
-
-A total compaction failure pauses by default to avoid retry loops. `resume` always reinjects the complete checkpoint, even when compaction was skipped or failed.
+- `compact_context` is sequential and model-only, not callable from codemode.
+- Short/ineligible contexts refuse before acceptance. Current settings, model overrides, session and branch are checked again before start/retry.
+- Acceptance is intent only: all sibling results must be complete **and persisted** before compaction.
+- Queued user input, Stop, tree changes, session replacement and stale callbacks invalidate unsafe work.
+- A context-time refusal pauses in memory immediately without appending to the active request's session leaf. Its diagnostic is persisted once at an idle `agent_settled` boundary, only while the same session/checkpoint/generation remains current. Unknown idle/session state cannot authorize a write; invalidation or navigation discards stale diagnostics. Idle manual retry refusals can record immediately. Settlement never starts compaction, retry or continuation.
+- Successful continuation carries the full canonical ledger exactly once. Total failure pauses by default and never claims a successful checkpoint.
+- `/context-gc status | retry | resume | cancel` inspects or recovers. Explicit `resume` can continue without successful compaction; the ledger states that truthfully.
+- No user-history migration is provided. Reader compatibility belongs to the separately installed backend; start a new session when its format is unsupported.
 
 ## Configuration
 
-Global:
-
-```text
-~/.pi/agent/context-gc.json
-```
-
-Project-local, only for a trusted project:
-
-```text
-.pi/context-gc.json
-```
+Global: `~/.pi/agent/context-gc.json`. Trusted project override: `.pi/context-gc.json`. No project config is read before trust.
 
 ```json
 {
   "enabled": true,
   "autoResume": true,
   "resumeOnFailure": false,
-  "notify": false
+  "notify": false,
+  "minContextTokens": 0
 }
 ```
 
-Project settings override global settings. Environment overrides:
+The public package default is `minContextTokens: 0`; a host project's admission policy is separate and is not shipped here. Zero disables only the additional token floor, **not** exact SDK readiness or any safety guard. A positive safe-integer floor requires known current SDK usage at acceptance and start/retry. Early model guidance is stable and never embeds a changing usage counter. Pi's `keepRecentTokens` and effective per-model settings still determine preparation eligibility.
 
-```text
-PI_CONTEXT_GC_ENABLED
-PI_CONTEXT_GC_AUTO_RESUME
-PI_CONTEXT_GC_RESUME_ON_FAILURE
-PI_CONTEXT_GC_NOTIFY
-```
+Boolean environment overrides: `PI_CONTEXT_GC_ENABLED`, `PI_CONTEXT_GC_AUTO_RESUME`, `PI_CONTEXT_GC_RESUME_ON_FAILURE`, `PI_CONTEXT_GC_NOTIFY` (`1/0`, `true/false`, `yes/no`, `on/off`).
 
-Accepted booleans: `1/0`, `true/false`, `yes/no`, `on/off`.
+## Embedding
 
-The vendored native backend has its own optional configuration at:
+`createContextGcExtension()` can be registered as a scheduler factory on its own; this does not supply a native backend or qualify stock CLI. Its optional admission callbacks (`admitSession`, `isActive`) remain activation-local and cannot grant SDK eligibility. `loadConfig(ctx)` exposes the same config reader for admission consumers.
 
-```text
-~/.pi/agent/extensions/pi-better-compaction/config.json
-```
+`readCompactionReadiness(ctx, pi.getSettings())` returns `{ ok: true, eligible, sessionId, leafId }` or `{ ok: false, reason }`. `checkCompactionEligibility(pi, ctx)` returns a content-free eligible/refused result after validating the current snapshot and branch. Neither function grants project trust, dispatches a model, aborts a run or performs compaction.
 
-## Persistence and privacy
+## Verification and provenance
 
-- The normal tool call/result participates in the pre-compaction context.
-- Diagnostic checkpoint entries are stored in Pi JSONL but do not enter model context.
-- The hidden resume message does enter model context.
-- Native compaction persists an opaque encrypted item in the Pi compaction entry.
-- Conversation context is sent to the configured OpenAI endpoint during native compaction.
-
-## Validation
-
-```bash
+```sh
+npm ci --ignore-scripts
 npm run check
 ```
 
-See [the validation record](docs/VALIDATION.md) for the publication checks and remaining live-provider limitations. This is an experimental package, not a guarantee of model behavior or lower bills.
+The latest maintainer recheck reports **410 scheduler tests passing**. Coverage includes inherited lifecycle/policy/batch guards, exact SDK readiness, effective settings, malformed/stale/foreign SDK refusals, and real unbundled CLI/Jiti with synthetic inference and an independent preparation oracle. The bundled CLI regression asserts refusal. Set `GC_HOST_SDK` to another exact installed SDK1.3.0 package directory to run CLI tests against the actual host rather than the dev installation. CLI fixtures use isolated HOME and synthetic in-memory sessions with network guards.
 
-## Documentation
+Separate checks report backend **212 unit + 23 actual-SDK oracle + 3 full-root loader** checks, host source/packed composition **26**, and compiled-adapter fixture **1** passing. These are offline, scoped checks, not public Git installation verification, full compiled RPC/package composition, native browser acceptance, live memory-quality evidence or blanket cross-provider certification. Node delivery is qualified within those scopes; Bun delivery is not. Publication and host activation remain separate actions.
 
-- `docs/BRIEF-IT.md` — full product/research brief
-- `docs/ARCHITECTURE.md` — lifecycle, state machine and ownership
-- `docs/ENGINEERING.md` — implementation invariants
-- `docs/RESEARCH.md` — inspected source map and design decision
-- `docs/TESTPLAN.md` — offline, live, overflow and quality tests
-- `docs/VALIDATION.md` — validation record and limitations
-
-## Scheduler-only mode
-
-When another extension already owns native compaction:
-
-```bash
-pi -e /absolute/path/to/pi-context-gc/scheduler-only.ts
-```
-
-The scheduler never calls OpenAI directly and does not own credentials.
-
-## License and attribution
-
-MIT. Complete trailing tool-batch validation is adapted from `pi-midrun-compact` under MIT. `@lll9p/pi-better-compaction` remains an independently licensed runtime dependency. See `NOTICE.md`.
+`docs/` and `CHANGELOG.md` retain upstream historical research/validation, including the earlier vendored composition; they are **not** the current install or support contract. This README and [PATCHES.md](PATCHES.md) describe this fork. Original author: [Manuel Cecchetto](https://github.com/manuelcecchetto/pi-context-gc). MIT license and third-party notices are preserved in [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).

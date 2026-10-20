@@ -1,4 +1,3 @@
-// Explicit alias for loading only the semantic scheduler when another
-// `session_before_compact` backend is already installed.
-export { default } from "./src/extension.ts";
-export { createContextGcExtension } from "./src/extension.ts";
+// Explicit alias; the package manifest also loads only the scheduler.
+export { default, createContextGcExtension, loadConfig, checkCompactionEligibility, readCompactionReadiness } from "./index.ts";
+export type { ContextGcAdmissionOptions, CompactionReadiness } from "./index.ts";

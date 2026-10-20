@@ -9,7 +9,12 @@ export const DEFAULT_CONFIG: ContextGcConfig = {
   autoResume: true,
   resumeOnFailure: false,
   notify: false,
+  minContextTokens: 0,
 };
+
+type BooleanConfigKey = {
+  [K in keyof ContextGcConfig]: ContextGcConfig[K] extends boolean ? K : never;
+}[keyof ContextGcConfig];
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -29,7 +34,7 @@ function readJson(path: string): { value?: UnknownRecord; warning?: string } {
     const code = asRecord(error)?.code;
     if (code === "ENOENT") return {};
     return {
-      warning: `${path}: ${error instanceof Error ? error.message : String(error)}`,
+      warning: `${path}: could not read or parse JSON configuration`,
     };
   }
 }
@@ -37,7 +42,7 @@ function readJson(path: string): { value?: UnknownRecord; warning?: string } {
 function mergeBoolean(
   target: ContextGcConfig,
   source: UnknownRecord,
-  key: keyof ContextGcConfig,
+  key: BooleanConfigKey,
   warnings: string[],
   sourceName: string,
 ): void {
@@ -60,6 +65,14 @@ function applySource(
   mergeBoolean(target, source, "autoResume", warnings, sourceName);
   mergeBoolean(target, source, "resumeOnFailure", warnings, sourceName);
   mergeBoolean(target, source, "notify", warnings, sourceName);
+  const minimum = source.minContextTokens;
+  if (minimum !== undefined) {
+    if (typeof minimum === "number" && Number.isSafeInteger(minimum) && minimum >= 0) {
+      target.minContextTokens = minimum;
+    } else {
+      warnings.push(`${sourceName}: minContextTokens must be a nonnegative safe integer`);
+    }
+  }
 }
 
 function envBoolean(name: string): boolean | undefined {
@@ -100,7 +113,7 @@ export function loadConfig(ctx: ExtensionContext): LoadedConfig {
     }
   }
 
-  const overrides: Array<[keyof ContextGcConfig, string]> = [
+  const overrides: Array<[BooleanConfigKey, string]> = [
     ["enabled", "PI_CONTEXT_GC_ENABLED"],
     ["autoResume", "PI_CONTEXT_GC_AUTO_RESUME"],
     ["resumeOnFailure", "PI_CONTEXT_GC_RESUME_ON_FAILURE"],

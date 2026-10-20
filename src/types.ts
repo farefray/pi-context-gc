@@ -9,6 +9,7 @@ export interface ContextGcConfig {
   autoResume: boolean;
   resumeOnFailure: boolean;
   notify: boolean;
+  minContextTokens: number;
 }
 
 export interface LoadedConfig {
@@ -51,6 +52,12 @@ export interface RuntimeState {
   checkpoint: ContextCheckpoint | undefined;
   lastError: string | undefined;
   lastCompletedCheckpointId: string | undefined;
+  pendingPauseDiagnostic: {
+    generation: number;
+    checkpointId: string;
+    sessionId: string;
+    error: string;
+  } | undefined;
 }
 
 export interface CompleteToolBatch {

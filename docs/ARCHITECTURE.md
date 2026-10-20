@@ -1,5 +1,7 @@
 # Architecture
 
+> Historical upstream design. This candidate is scheduler-only, uses exact unbundled SDK1.3.0 readiness without force, and refuses the bundled CLI. See [current contract](../README.md) and [fork changes](../PATCHES.md); former vendor/support statements below are provenance, not current behavior.
+
 ## Ownership boundaries
 
 `pi-context-gc` intentionally does not implement a compactor.

@@ -1,6 +1,6 @@
-// Scheduler entrypoint. The package manifest loads the bundled native OpenAI
-// compaction backend before this file. Loading this file directly runs only the
-// semantic scheduler; that is useful when another backend already owns
-// `session_before_compact`.
-export { default } from "./src/extension.ts";
-export { createContextGcExtension } from "./src/extension.ts";
+// Scheduler only. Install a compaction backend separately when required.
+export { default, createContextGcExtension, loadConfig } from "./src/extension.ts";
+export { checkCompactionEligibility } from "./src/eligibility.ts";
+export { readCompactionReadiness } from "./src/sdk-readiness.ts";
+export type { CompactionReadiness } from "./src/sdk-readiness.ts";
+export type { ContextGcAdmissionOptions } from "./src/extension.ts";
